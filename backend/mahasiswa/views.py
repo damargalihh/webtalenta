@@ -98,3 +98,65 @@ def toggle_mahasiswa_status(request, pk):
         })
     except Mahasiswa.DoesNotExist:
         return Response({'error': 'Mahasiswa not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedOrReadOnly])
+def generate_qr_code(request, pk):
+    """Generate QR Code for mahasiswa profile"""
+    try:
+        mahasiswa = Mahasiswa.objects.get(pk=pk)
+        
+        # Build the profile URL (adjust based on your frontend URL)
+        # You can get the base URL from settings or request
+        base_url = request.build_absolute_uri('/')[:-1]  # Remove trailing slash
+        profile_url = f"{base_url}/talent/{pk}"
+        
+        # Generate QR Code
+        import qrcode
+        import io
+        import base64
+        from django.http import HttpResponse
+        
+        # Create QR code instance
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(profile_url)
+        qr.make(fit=True)
+        
+        # Create image
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Check if user wants to download or get base64
+        download = request.GET.get('download', 'false').lower() == 'true'
+        
+        if download:
+            # Return as downloadable PNG file
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            buffer.seek(0)
+            
+            response = HttpResponse(buffer, content_type='image/png')
+            response['Content-Disposition'] = f'attachment; filename="qrcode_{mahasiswa.nama}_{pk}.png"'
+            return response
+        else:
+            # Return as base64 encoded JSON
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            
+            return Response({
+                'qr_code': f'data:image/png;base64,{img_base64}',
+                'profile_url': profile_url,
+                'mahasiswa_nama': mahasiswa.nama,
+                'mahasiswa_id': pk
+            })
+            
+    except Mahasiswa.DoesNotExist:
+        return Response({'error': 'Mahasiswa not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
