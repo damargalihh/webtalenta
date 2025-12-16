@@ -277,123 +277,6 @@ def toggle_mahasiswa_status(request, pk):
         return Response({'error': 'Mahasiswa not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
-@api_view(['POST'])
-@permission_classes([AllowAny])  # Allow anonymous tracking
-def track_profile_view(request, pk):
-    """Track profile view - increment +1 setiap kali detail dibuka"""
-    try:
-        mahasiswa = Mahasiswa.objects.get(pk=pk)
-        
-        # Get client IP for logging
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        
-        # Determine viewer type
-        if request.user.is_authenticated:
-            viewer_info = f"User:{request.user.username}"
-        else:
-            viewer_info = f"Guest:{ip}"
-        
-        print(f"[VIEW TRACK] Profile: {mahasiswa.nama} (ID: {pk}), Viewer: {viewer_info}, Before: {mahasiswa.views_count}")
-        
-        # SIMPLE LOGIC: Always increment by 1 when detail page is opened
-        mahasiswa.views_count += 1
-        mahasiswa.save(update_fields=['views_count'])
-        
-        print(f"[VIEW TRACK] After: {mahasiswa.views_count} (+1)")
-        
-        return Response({
-            'success': True,
-            'message': 'View tracked successfully',
-            'profile_id': pk,
-            'profile_name': mahasiswa.nama,
-            'total_views': mahasiswa.views_count
-        }, status=status.HTTP_200_OK)
-        
-    except Mahasiswa.DoesNotExist:
-        print(f"[VIEW TRACK ERROR] Mahasiswa with ID {pk} not found")
-        return Response({'error': 'Mahasiswa not found'}, status=status.HTTP_404_NOT_FOUND)
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def get_current_user_profile(request):
-    """Get current authenticated user's mahasiswa profile"""
-    try:
-        mahasiswa = Mahasiswa.objects.get(user=request.user)
-        serializer = MahasiswaSerializer(mahasiswa)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-    except Mahasiswa.DoesNotExist:
-        return Response({
-            'error': 'No profile found',
-            'message': 'You have not created a profile yet',
-            'has_profile': False,
-            'user': {
-                'id': request.user.id,
-                'username': request.user.username,
-                'email': request.user.email
-            }
-        }, status=status.HTTP_200_OK)
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def profile_completion_status(request):
-    """Get profile completion status for authenticated user"""
-    try:
-        # Check if user has mahasiswa_profile
-        if not hasattr(request.user, 'mahasiswa_profile'):
-            return Response({
-                'error': 'No mahasiswa profile found for this user',
-                'is_complete': False,
-                'completion_percentage': 0,
-                'filled_fields': 0,
-                'total_fields': 7,
-                'missing_fields': ['nama', 'nim', 'prodi', 'email', 'bio', 'foto_profil', 'tanggal_lahir']
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        mahasiswa = request.user.mahasiswa_profile
-        
-        # Define required fields
-        required_fields = {
-            'nama': mahasiswa.nama,
-            'nim': mahasiswa.nim,
-            'prodi': mahasiswa.prodi,
-            'email': mahasiswa.email,
-            'bio': mahasiswa.bio,
-            'foto_profil': mahasiswa.foto_profil,
-            'tanggal_lahir': mahasiswa.tanggal_lahir,
-        }
-        
-        # Calculate completion
-        filled_fields = sum(1 for value in required_fields.values() if value)
-        total_fields = len(required_fields)
-        completion_percentage = int((filled_fields / total_fields) * 100)
-        
-        # Get missing fields
-        missing_fields = [key for key, value in required_fields.items() if not value]
-        
-        return Response({
-            'is_complete': len(missing_fields) == 0,
-            'completion_percentage': completion_percentage,
-            'filled_fields': filled_fields,
-            'total_fields': total_fields,
-            'missing_fields': missing_fields,
-            'mahasiswa': MahasiswaSerializer(mahasiswa).data
-        })
-        
-    except AttributeError:
-        return Response({
-            'is_complete': False,
-            'completion_percentage': 0,
-            'message': 'No mahasiswa profile found',
-            'mahasiswa': None
-        }, status=status.HTTP_404_NOT_FOUND)
-
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticatedOrReadOnly])
 def generate_qr_code(request, pk):
@@ -428,82 +311,29 @@ def generate_qr_code(request, pk):
         # Check if user wants to download or get base64
         download = request.GET.get('download', 'false').lower() == 'true'
         
-        # Always return as PNG image (not JSON)
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG')
-        buffer.seek(0)
-        
-        response = HttpResponse(buffer, content_type='image/png')
-        
-        # Add CORS headers
-        response['Access-Control-Allow-Origin'] = '*'
-        response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
-        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-        
-        # If download parameter is true, set Content-Disposition
-        download = request.GET.get('download', 'false').lower() == 'true'
         if download:
+            # Return as downloadable PNG file
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            buffer.seek(0)
+            
+            response = HttpResponse(buffer, content_type='image/png')
             response['Content-Disposition'] = f'attachment; filename="qrcode_{mahasiswa.nama}_{pk}.png"'
-        
-        return response
-            
-    except Mahasiswa.DoesNotExist:
-        return Response({'error': 'Mahasiswa not found'}, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticatedOrReadOnly])
-def get_recommendations(request, pk):
-    """Get recommended talents based on skill similarity"""
-    try:
-        # Get current mahasiswa
-        current_mahasiswa = Mahasiswa.objects.get(pk=pk)
-        
-        # Get their skills
-        from skills.models import Skill
-        current_skills = set(Skill.objects.filter(mahasiswa=current_mahasiswa).values_list('nama', flat=True))
-        
-        if not current_skills:
-            # If no skills, return most viewed profiles
-            recommended = Mahasiswa.objects.filter(
-                is_active=True
-            ).exclude(
-                id=current_mahasiswa.id
-            ).order_by('-views_count')[:6]
+            return response
         else:
-            # Find mahasiswa with similar skills
-            from django.db.models import Count, Q
+            # Return as base64 encoded JSON
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
             
-            # Build query for mahasiswa with matching skills
-            skill_query = Q()
-            for skill_name in current_skills:
-                skill_query |= Q(skills__nama__iexact=skill_name)
+            return Response({
+                'qr_code': f'data:image/png;base64,{img_base64}',
+                'profile_url': profile_url,
+                'mahasiswa_nama': mahasiswa.nama,
+                'mahasiswa_id': pk
+            })
             
-            # Get mahasiswa with matching skills, count matches
-            similar_mahasiswa = Mahasiswa.objects.filter(
-                is_active=True,
-                skills__isnull=False
-            ).exclude(
-                id=current_mahasiswa.id
-            ).filter(
-                skill_query
-            ).annotate(
-                matching_skills=Count('skills', distinct=True)
-            ).order_by('-matching_skills', '-views_count').distinct()[:6]
-            
-            recommended = similar_mahasiswa
-        
-        # Serialize recommendations
-        serializer = MahasiswaSerializer(recommended, many=True)
-        return Response({
-            'count': len(recommended),
-            'results': serializer.data
-        })
-        
     except Mahasiswa.DoesNotExist:
         return Response({'error': 'Mahasiswa not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        print(f"[ERROR] Recommendation error: {e}")
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
