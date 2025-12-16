@@ -1,7 +1,7 @@
-from rest_framework import generics, filters, status
+from rest_framework import generics, filters, status, serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated, IsAdminUser, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Mahasiswa
 from .serializers import MahasiswaSerializer, MahasiswaListSerializer
@@ -16,7 +16,7 @@ class MahasiswaListCreateView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     
     # Filter by fields
-    filterset_fields = ['prodi', 'fakultas', 'is_active']
+    filterset_fields = ['prodi', 'fakultas', 'angkatan', 'is_active']
     
     # Search by fields
     search_fields = ['nama', 'nim', 'prodi', 'bio', 'skills__nama']
@@ -30,10 +30,164 @@ class MahasiswaListCreateView(generics.ListCreateAPIView):
         if self.request.method == 'GET':
             return MahasiswaListSerializer
         return MahasiswaSerializer
+    
+    def create(self, request, *args, **kwargs):
+        """Override create to handle both create and update"""
+        # Check if user already has a profile
+        try:
+            existing_profile = Mahasiswa.objects.get(user=request.user)
+            print(f"[UPDATE] Profile exists for user: {request.user.username}")
+            print(f"[UPDATE] Raw request data keys: {list(request.data.keys())}")
+            
+            # Filter out empty/None values from request data
+            filtered_data = {}
+            for key, value in request.data.items():
+                if value is not None and value != '':
+                    filtered_data[key] = value
+                    print(f"[UPDATE] Including field: {key} = {value}")
+                else:
+                    print(f"[UPDATE] Skipping empty field: {key}")
+            
+            print(f"[UPDATE] Filtered data keys: {list(filtered_data.keys())}")
+            
+            # Do PARTIAL UPDATE
+            serializer = self.get_serializer(
+                existing_profile,
+                data=filtered_data,
+                partial=True
+            )
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            
+            print(f"[UPDATE] Profile updated successfully")
+            return Response(serializer.data)
+            
+        except Mahasiswa.DoesNotExist:
+            print(f"[CREATE] Creating new profile for user: {request.user.username}")
+            # Call default create behavior
+            return super().create(request, *args, **kwargs)
+    
+    def perform_update(self, serializer):
+        """Called when updating existing profile"""
+        mahasiswa = serializer.save()
+        
+        # Handle skills if provided
+        skills_data = self.request.data.get('skills')
+        if skills_data:
+            import json
+            try:
+                skills_list = json.loads(skills_data) if isinstance(skills_data, str) else skills_data
+                from skills.models import Skill
+                # Clear existing and create new
+                mahasiswa.skills.all().delete()
+                for skill_name in skills_list:
+                    if skill_name.strip():
+                        Skill.objects.create(mahasiswa=mahasiswa, nama=skill_name.strip())
+                print(f"[UPDATE] Created {len(skills_list)} skills")
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"[UPDATE] Error parsing skills: {e}")
+        
+        # Handle pengalaman if provided
+        pengalaman_data = self.request.data.get('pengalaman')
+        if pengalaman_data:
+            import json
+            try:
+                pengalaman_list = json.loads(pengalaman_data) if isinstance(pengalaman_data, str) else pengalaman_data
+                from .models import Pengalaman
+                # Clear existing and create new
+                mahasiswa.pengalaman.all().delete()
+                for exp in pengalaman_list:
+                    if exp.get('posisi') and exp.get('organisasi'):
+                        Pengalaman.objects.create(
+                            mahasiswa=mahasiswa,
+                            posisi=exp.get('posisi', ''),
+                            organisasi=exp.get('organisasi', ''),
+                            tahun_mulai=exp.get('tahun_mulai', ''),
+                            tahun_selesai=exp.get('tahun_selesai', ''),
+                            deskripsi=exp.get('deskripsi', '')
+                        )
+                print(f"[UPDATE] Created {len(pengalaman_list)} pengalaman entries")
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"[UPDATE] Error parsing pengalaman: {e}")
 
     def perform_create(self, serializer):
-        # Automatically set user when creating mahasiswa profile
-        serializer.save(user=self.request.user)
+        # Check if user already has a profile
+        try:
+            existing_profile = Mahasiswa.objects.get(user=self.request.user)
+            print(f"[UPDATE] Profile exists for user: {self.request.user.username}")
+            print(f"[UPDATE] Raw request data keys: {list(self.request.data.keys())}")
+            
+            # Filter out empty/None values from request data
+            # Only send non-empty fields to serializer
+            filtered_data = {}
+            for key, value in self.request.data.items():
+                if value is not None and value != '':
+                    filtered_data[key] = value
+                    print(f"[UPDATE] Including field: {key} = {value}")
+                else:
+                    print(f"[UPDATE] Skipping empty field: {key}")
+            
+            print(f"[UPDATE] Filtered data keys: {list(filtered_data.keys())}")
+            
+            # If profile exists, do PARTIAL UPDATE
+            # Use serializer with partial=True to allow updating only changed fields
+            update_serializer = MahasiswaSerializer(
+                existing_profile,
+                data=filtered_data,  # Use filtered data
+                partial=True,  # Allow partial updates
+                context={'request': self.request}
+            )
+            
+            if not update_serializer.is_valid():
+                print(f"[UPDATE] Validation errors: {update_serializer.errors}")
+                raise serializers.ValidationError(update_serializer.errors)
+            
+            mahasiswa = update_serializer.save()
+            print(f"[UPDATE] Profile updated successfully: {mahasiswa.id}")
+            
+        except Mahasiswa.DoesNotExist:
+            print(f"[CREATE] Creating new profile for user: {self.request.user.username}")
+            # Create new profile
+            mahasiswa = serializer.save(user=self.request.user)
+            print(f"[CREATE] Profile created successfully: {mahasiswa.id}")
+        
+        # Handle skills if provided
+        skills_data = self.request.data.get('skills')
+        if skills_data:
+            import json
+            try:
+                skills_list = json.loads(skills_data) if isinstance(skills_data, str) else skills_data
+                from skills.models import Skill
+                # Clear existing and create new
+                mahasiswa.skills.all().delete()
+                for skill_name in skills_list:
+                    if skill_name.strip():
+                        Skill.objects.create(mahasiswa=mahasiswa, nama=skill_name.strip())
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        # Handle pengalaman if provided
+        pengalaman_data = self.request.data.get('pengalaman')
+        if pengalaman_data:
+            import json
+            try:
+                pengalaman_list = json.loads(pengalaman_data) if isinstance(pengalaman_data, str) else pengalaman_data
+                from .models import Pengalaman
+                # Clear existing and create new
+                mahasiswa.pengalaman.all().delete()
+                for exp in pengalaman_list:
+                    if exp.get('posisi') and exp.get('organisasi'):
+                        Pengalaman.objects.create(
+                            mahasiswa=mahasiswa,
+                            posisi=exp.get('posisi', ''),
+                            organisasi=exp.get('organisasi', ''),
+                            tahun_mulai=exp.get('tahun_mulai', ''),
+                            tahun_selesai=exp.get('tahun_selesai', ''),
+                            deskripsi=exp.get('deskripsi', '')
+                        )
+                print(f"[CREATE] Created {len(pengalaman_list)} pengalaman entries")
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"[CREATE] Error parsing pengalaman: {e}")
 
 
 class MahasiswaDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -47,11 +201,8 @@ class MahasiswaDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
     
     def retrieve(self, request, *args, **kwargs):
-        """Increment view count when profile is viewed"""
+        """Get profile detail without incrementing views (use dedicated track_profile_view endpoint)"""
         instance = self.get_object()
-        # Only increment if not viewing own profile
-        if not request.user.is_authenticated or request.user != instance.user:
-            instance.increment_views()
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -60,7 +211,33 @@ class MahasiswaDetailView(generics.RetrieveUpdateDestroyAPIView):
         if serializer.instance.user != self.request.user:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only update your own profile")
-        serializer.save()
+        
+        mahasiswa = serializer.save()
+        
+        # Handle skills update if provided
+        skills_data = self.request.data.get('skills')
+        if skills_data:
+            import json
+            try:
+                skills_list = json.loads(skills_data) if isinstance(skills_data, str) else skills_data
+                from skills.models import Skill
+                # Clear existing skills and create new ones
+                mahasiswa.skills.all().delete()
+                for skill_name in skills_list:
+                    if skill_name.strip():
+                        Skill.objects.create(mahasiswa=mahasiswa, nama=skill_name.strip())
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        # Handle pengalaman update if provided
+        pengalaman_data = self.request.data.get('pengalaman')
+        if pengalaman_data:
+            import json
+            try:
+                pengalaman_list = json.loads(pengalaman_data) if isinstance(pengalaman_data, str) else pengalaman_data
+                # Handle pengalaman updates here if model exists
+            except (json.JSONDecodeError, TypeError):
+                pass
     
     def perform_destroy(self, instance):
         # Only allow user to delete their own profile

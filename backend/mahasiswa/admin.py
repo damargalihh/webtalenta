@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Mahasiswa
+from .models import Mahasiswa, Pengalaman
 
 @admin.register(Mahasiswa)
 class MahasiswaAdmin(admin.ModelAdmin):
@@ -8,3 +8,10 @@ class MahasiswaAdmin(admin.ModelAdmin):
     search_fields = ['nama', 'nim', 'email', 'prodi']
     list_editable = ['is_active']
     date_hierarchy = 'created_at'
+
+
+@admin.register(Pengalaman)
+class PengalamanAdmin(admin.ModelAdmin):
+    list_display = ['posisi', 'organisasi', 'mahasiswa', 'tahun_mulai', 'tahun_selesai']
+    list_filter = ['tahun_mulai']
+    search_fields = ['posisi', 'organisasi', 'mahasiswa__nama']

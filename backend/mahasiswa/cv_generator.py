@@ -127,9 +127,12 @@ def download_cv(request, pk):
     pdf = buffer.getvalue()
     buffer.close()
     
-    # Create response
+    # Create response with CORS headers
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="{mahasiswa.nama}_CV.pdf"'
+    response['Access-Control-Allow-Origin'] = '*'
+    response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     response.write(pdf)
     
     return response

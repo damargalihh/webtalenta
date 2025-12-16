@@ -28,17 +28,17 @@ urlpatterns = [
     # Admin
     path('admin/', admin.site.urls),
     
-    # Documentation
-    path('', schema_view.with_ui('swagger', cache_timeout=0), name='api-root'),
+    # Documentation (di atas agar tidak tertimpa path lain)
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='redoc-ui'),
+    path('api-docs/', schema_view.with_ui('swagger', cache_timeout=0), name='api-root'),
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-export'),
     
     # API
-    path('api/accounts/', include('accounts.urls')),
-    path('api/mahasiswa/', include('mahasiswa.urls')),
-    path('api/skills/', include('skills.urls')),
-    path('api/talents/', include('talents.urls')),
+    path('accounts/', include('accounts.urls')),
+    path('mahasiswa/', include('mahasiswa.urls')),
+    path('skills/', include('skills.urls')),
+    path('talents/', include('talents.urls')),
 ]
 
 # ============================================================================

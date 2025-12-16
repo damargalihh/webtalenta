@@ -55,6 +55,23 @@ MIDDLEWARE = [
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://localhost:5173', cast=Csv())
 CORS_ALLOW_CREDENTIALS = True
+# Allow all origins in development (remove in production!)
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+
+# Additional CORS headers for custom headers
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'x-session-key',  # Custom header for session tracking
+]
 
 # REST Framework Configuration
 REST_FRAMEWORK = {
