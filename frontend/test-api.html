@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Connection Test</title>
+</head>
+<body>
+    <h1>API Connection Test</h1>
+    <button onclick="testAPI()">Test Backend Connection</button>
+    <div id="result"></div>
+
+    <script>
+        async function testAPI() {
+            const result = document.getElementById('result');
+            result.innerHTML = '<p>Testing...</p>';
+            
+            try {
+                // Test 1: Simple fetch
+                console.log('Testing fetch to http://localhost:8000/api/mahasiswa/');
+                const response = await fetch('http://localhost:8000/api/mahasiswa/');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('✅ Success:', data);
+                
+                result.innerHTML = `
+                    <h2 style="color: green;">✅ Connection Successful!</h2>
+                    <p>Status: ${response.status}</p>
+                    <p>Data received: ${data.count || data.length || 'OK'} items</p>
+                    <pre>${JSON.stringify(data, null, 2).substring(0, 500)}...</pre>
+                `;
+            } catch (error) {
+                console.error('❌ Error:', error);
+                result.innerHTML = `
+                    <h2 style="color: red;">❌ Connection Failed</h2>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                    <h3>Troubleshooting:</h3>
+                    <ol>
+                        <li>Is backend running? Open <a href="http://localhost:8000/api/" target="_blank">http://localhost:8000/api/</a></li>
+                        <li>Check browser console (F12) for CORS errors</li>
+                        <li>Ensure CORS_ALLOW_ALL_ORIGINS = True in Django settings</li>
+                        <li>Restart backend server after changing settings</li>
+                    </ol>
+                `;
+            }
+        }
+        
+        // Auto-test on page load
+        window.onload = () => {
+            setTimeout(testAPI, 500);
+        };
+    </script>
+</body>
+</html>

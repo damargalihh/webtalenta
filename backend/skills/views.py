@@ -28,7 +28,10 @@ def endorse_skill(request, pk):
     # Prevent self-endorsement
     try:
         if skill.mahasiswa.user == request.user:
-            return Response({'error': 'Cannot endorse your own skill'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'error': 'Cannot endorse your own skill',
+                'detail': 'You cannot endorse your own skills'
+            }, status=status.HTTP_400_BAD_REQUEST)
     except:
         pass  # User doesn't have mahasiswa profile, allow endorsement
     
@@ -39,7 +42,10 @@ def endorse_skill(request, pk):
     )
     
     if not created:
-        return Response({'message': 'Already endorsed'}, status=status.HTTP_200_OK)
+        return Response({
+            'message': 'Already endorsed',
+            'detail': 'You have already endorsed this skill'
+        }, status=status.HTTP_200_OK)
     
     serializer = SkillEndorsementSerializer(endorsement)
     return Response({
